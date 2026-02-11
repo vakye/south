@@ -41,6 +41,18 @@ local void x64Setup(void)
     };
 
     __asm volatile ("lgdtq %0" : : "m"(GDTR));
+    
+    // NOTE(vak): Load code segment offset
+
+    __asm volatile
+    (
+        "   movq $DummyLabel, %%rax\n"
+        "   push $0x08\n"
+        "   push %%rax\n"
+        "   lretq\n"
+        "DummyLabel:\n"
+        : : : "rax"
+    );
 
     // NOTE(vak): Load data segment offset
 
@@ -53,18 +65,6 @@ local void x64Setup(void)
         "movw %%ax, %%gs\n"
         "movw %%ax, %%ss\n"
         : : : "ax"
-    );
-
-    // NOTE(vak): Load code segment offset
-
-    __asm volatile
-    (
-        "   movq $DummyLabel, %%rax\n"
-        "   push $0x08\n"
-        "   push %%rax\n"
-        "   lretq\n"
-        "DummyLabel:\n"
-        : : : "rax"
     );
 }
 
