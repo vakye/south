@@ -65,7 +65,7 @@ typedef struct
 #define OUT
 #define CONST const
 
-#define EFI_DEFINE_STATUS(A)        (((EFI_STATUS)(1) << (sizeof(EFI_STATUS) - 1)) | (A))
+#define EFI_DEFINE_STATUS(A)        (((EFI_STATUS)(1) << (sizeof(EFI_STATUS)*8 - 1)) | (A))
 
 #define EFI_SUCCESS                 (0)
 #define EFI_LOAD_ERROR              EFI_DEFINE_STATUS( 1)
@@ -144,6 +144,26 @@ typedef EFI_STATUS (EFIAPI *EFI_TEXT_SET_MODE)(
     IN EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL*         This,
     IN UINTN                                    ModeNumber
 );
+
+#define EFI_BLACK                               0x00
+#define EFI_BLUE                                0x01
+#define EFI_GREEN                               0x02
+#define EFI_CYAN                                0x03
+#define EFI_RED                                 0x04
+#define EFI_MAGENTA                             0x05
+#define EFI_BROWN                               0x06
+#define EFI_LIGHTGRAY                           0x07
+#define EFI_BRIGHT                              0x08
+#define EFI_DARKGRAY                            0x08
+#define EFI_LIGHTBLUE                           0x09
+#define EFI_LIGHTGREEN                          0x0A
+#define EFI_LIGHTCYAN                           0x0B
+#define EFI_LIGHTRED                            0x0C
+#define EFI_LIGHTMAGENTA                        0x0D
+#define EFI_YELLOW                              0x0E
+#define EFI_WHITE                               0x0F
+
+#define EFI_TEXT_ATTR(Foreground, Background) ((Foreground) | ((Background) << 4))
 
 typedef EFI_STATUS (EFIAPI *EFI_TEXT_SET_ATTRIBUTE)(
     IN EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL*         This,
