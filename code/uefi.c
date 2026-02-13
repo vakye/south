@@ -1,11 +1,10 @@
 
 #include "shared.h"
-#include "shared.c"
-
 #include "arch.h"
-#include "arch_x64.c"
-
 #include "kernel.h"
+
+#include "shared.c"
+#include "arch_x64.c"
 #include "kernel.c"
 
 #include "uefi.h"
@@ -130,7 +129,7 @@ EFI_STATUS EFIAPI UEFIBoot(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE* SystemTable
 
         if (Descriptor->NumberOfPages > Region.PageCount)
         {
-            Region.Base      = Descriptor->PhysicalStart;
+            Region.Base      = (void*)Descriptor->PhysicalStart;
             Region.PageCount = Descriptor->NumberOfPages;
         }
     }
