@@ -1,77 +1,102 @@
 
-#pragma pack(push, 1)
-
-typedef struct
+local page_arena CreatePageArena(memory_region Region)
 {
-    u16 Limit0;
-    u16 Base0;
-    u8  Base1;
-    u8  Access;
-    u8  Limit1AndFlags;
-    u8  Base2;
-} x64_gdt_entry;
-
-typedef struct
-{
-    u16 Limit;
-    u64 Address;
-} x64_gdt_register;
-
-#pragma pack(pop)
-
-local void x64Setup(void)
-{
-    // NOTE(vak): Clear interrupts
-
-    __asm volatile ("cli");
-
-    // NOTE(vak): Setup GDT
-
-    x64_gdt_entry GDT[] =
+    page_arena Result =
     {
-        {0x0000, 0x0000, 0x00, 0x00, 0x00, 0x00}, // NOTE(vak): NULL
-        {0x0000, 0x0000, 0x00, 0x9A, 0xA0, 0x00}, // NOTE(vak): Code
-        {0x0000, 0x0000, 0x00, 0x92, 0xA0, 0x00}, // NOTE(vak): Data
+        .Base      = Region.Base,
+        .PageCount = Region.PageCount,
     };
 
-    x64_gdt_register GDTR =
-    {
-        .Limit      = sizeof(GDT) - 1,
-        .Address    = (usize)GDT,
-    };
-
-    __asm volatile ("lgdtq %0" : : "m"(GDTR));
-    
-    // NOTE(vak): Load code segment offset
-
-    __asm volatile
-    (
-        "   movq $DummyLabel, %%rax\n"
-        "   push $0x08\n"
-        "   push %%rax\n"
-        "   lretq\n"
-        "DummyLabel:\n"
-        : : : "rax"
-    );
-
-    // NOTE(vak): Load data segment offset
-
-    __asm volatile
-    (
-        "movw $0x10, %%ax\n"
-        "movw %%ax, %%ds\n"
-        "movw %%ax, %%es\n"
-        "movw %%ax, %%fs\n"
-        "movw %%ax, %%gs\n"
-        "movw %%ax, %%ss\n"
-        : : : "ax"
-    );
+    return (Result);
 }
 
-local void KernelEntry(void)
+local void* AllocatePage(page_arena* Arena)
 {
-    x64Setup();
+    void* Result = 0;
+
+    if (Arena->PagesUsed < Arena->PageCount)
+    {
+        Result = (u8*)Arena->Base + (KB(4) * Arena->PagesUsed);
+
+        Arena->PagesUsed++;
+    }
+
+    return (Result);
+}
+
+local b32 IsPageTableEntryPresent(page_table* Table, usize EntryIndex)
+{
+    u64 Entry = 0;
+
+    if (Table && (EntryIndex < ArrayCount(Table->Entries)))
+    {
+        Entry = Table->Entries[EntryIndex];
+    }
+
+    b32 Result = ((Entry & PageFlag_Present) != 0);
+
+    return (Result);
+}
+
+local page_table* AccessPageTable(page_arena* Arena, page_table* Table, usize EntryIndex)
+{
+    page_table* Result = 0;
+
+    if (Table && (EntryIndex < ArrayCount(Table->Entries)))
+    {
+        if (!IsPageTableEntryPresent(Table, EntryIndex))
+        {
+            page_table* New = AllocatePage(Arena);
+            ZeroStruct(New);
+
+            usize Address = (usize)(New);
+
+            Table->Entries[EntryIndex] = (Address|PageFlag_Present|PageFlag_ReadWrite);
+        }
+
+        Result = (page_table*)(Table->Entries[EntryIndex] & PageAddressMask);
+    }
+
+    return (Result);
+}
+
+local void IdentityMapPage(page_arena* Arena, page_table* PML4, usize Address)
+{
+    if (Address >= (PageAddressMask + KB(4)))
+        return;
+
+    Address &= PageAddressMask;
+
+    usize IndexPML4 = (Address >> 39) & 0x1FF;
+    usize IndexPDPT = (Address >> 30) & 0x1FF;
+    usize IndexPDT  = (Address >> 21) & 0x1FF;
+    usize IndexPT   = (Address >> 12) & 0x1FF;
+
+    if (IndexPML4 >= ArrayCount(PML4->Entries))
+        return;
+
+    page_table* PDPT = AccessPageTable(Arena, PML4, IndexPML4);
+    page_table* PDT  = AccessPageTable(Arena, PDPT, IndexPDPT);
+    page_table* PT   = AccessPageTable(Arena, PDT,  IndexPDT );
+
+    PT->Entries[IndexPT] = (Address|PageFlag_Present|PageFlag_ReadWrite);
+}
+
+local void KernelEntry(memory_region Region)
+{
+    ArchSetup();
+
+    page_arena Arena = CreatePageArena(Region);
+    page_table* PML4 = (page_table*)AllocatePage(&Arena);
+
+    ZeroStruct(PML4);
+
+    for (usize Address = 0; Address < GB(4); Address += KB(4))
+    {
+        IdentityMapPage(&Arena, PML4, Address);
+    }
+
+    ArchLoadPML4(PML4);
 
     for (;;);
 }
-

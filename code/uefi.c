@@ -2,6 +2,9 @@
 #include "shared.h"
 #include "shared.c"
 
+#include "arch.h"
+#include "arch_x64.c"
+
 #include "kernel.h"
 #include "kernel.c"
 
@@ -18,10 +21,10 @@ local void UEFIError(
 
     ConOut->SetAttribute(ConOut, EFI_TEXT_ATTR(EFI_WHITE, EFI_BLACK));
     ConOut->OutputString(ConOut, L"[");
-   
+
     ConOut->SetAttribute(ConOut, EFI_TEXT_ATTR(EFI_LIGHTRED, EFI_BLACK));
     ConOut->OutputString(ConOut, L"ERROR");
-    
+
     ConOut->SetAttribute(ConOut, EFI_TEXT_ATTR(EFI_WHITE, EFI_BLACK));
     ConOut->OutputString(ConOut, L"]: ");
     ConOut->OutputString(ConOut, Message);
@@ -36,8 +39,6 @@ local void UEFIError(
 
 EFI_STATUS EFIAPI UEFIBoot(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE* SystemTable)
 {
-    (void) ImageHandle;
-
     EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL*    ConOut          = SystemTable->ConOut;
     EFI_BOOT_SERVICES*                  BootServices    = SystemTable->BootServices;
 
@@ -45,7 +46,7 @@ EFI_STATUS EFIAPI UEFIBoot(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE* SystemTable
     ConOut->ClearScreen(ConOut);
 
     usize MemoryMapSize     = 0;
-    void* MemoryMap         = 0;
+    void* MemoryDescriptors = 0;
     usize MemoryMapKey      = 0;
     usize DescriptorSize    = 0;
     u32   DescriptorVersion = 0;
@@ -54,7 +55,7 @@ EFI_STATUS EFIAPI UEFIBoot(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE* SystemTable
     {
         EFI_STATUS Status = BootServices->GetMemoryMap(
             &MemoryMapSize,
-            MemoryMap,
+            MemoryDescriptors,
             &MemoryMapKey,
             &DescriptorSize,
             &DescriptorVersion
@@ -68,10 +69,10 @@ EFI_STATUS EFIAPI UEFIBoot(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE* SystemTable
         {
             usize NewSize = MemoryMapSize + 4*DescriptorSize;
 
-            if (MemoryMap)
+            if (MemoryDescriptors)
             {
                 EFI_STATUS FreeStatus = BootServices->FreePool(
-                    MemoryMap
+                    MemoryDescriptors
                 );
 
                 if (FreeStatus == EFI_INVALID_PARAMETER)
@@ -87,7 +88,7 @@ EFI_STATUS EFIAPI UEFIBoot(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE* SystemTable
             EFI_STATUS AllocateStatus = BootServices->AllocatePool(
                 EfiLoaderData,
                 NewSize,
-                &MemoryMap
+                &MemoryDescriptors
             );
 
             if (AllocateStatus == EFI_OUT_OF_RESOURCES)
@@ -113,6 +114,27 @@ EFI_STATUS EFIAPI UEFIBoot(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE* SystemTable
         }
     }
 
+    usize DescriptorCount = MemoryMapSize / DescriptorSize;
+
+    memory_region Region = {0};
+
+    for (usize Index = 0; Index < DescriptorCount; Index++)
+    {
+        EFI_MEMORY_DESCRIPTOR* Descriptor = (EFI_MEMORY_DESCRIPTOR*)
+            ((u8*)MemoryDescriptors + Index*DescriptorSize);
+
+        if (Descriptor->Type != EfiConventionalMemory)
+            continue;
+
+        usize Size = KB(4) * Descriptor->NumberOfPages;
+
+        if (Descriptor->NumberOfPages > Region.PageCount)
+        {
+            Region.Base      = Descriptor->PhysicalStart;
+            Region.PageCount = Descriptor->NumberOfPages;
+        }
+    }
+
     EFI_STATUS ExitStatus = BootServices->ExitBootServices(
         ImageHandle,
         MemoryMapKey
@@ -127,7 +149,7 @@ EFI_STATUS EFIAPI UEFIBoot(EFI_HANDLE ImageHandle, EFI_SYSTEM_TABLE* SystemTable
         UEFIError(SystemTable, L"Unknown error in BootServices->ExitBootServices().");
     }
 
-    KernelEntry();
+    KernelEntry(Region);
 
     return (EFI_SUCCESS);
 }
@@ -152,4 +174,3 @@ void* memset(void* DestInit, s32 Byte, usize Size)
 
     return (DestInit);
 }
-
